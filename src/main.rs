@@ -16,14 +16,22 @@ fn main() -> Result<()> {
     match command.as_str() {
         ".dbinfo" => {
             let mut file = File::open(&args[1])?;
-            let mut header = [0; 100];
-            file.read_exact(&mut header)?;
+            let mut file_header = [0; 100];
+            file.read_exact(&mut file_header)?;
 
-            // The page size is stored at the 16th byte offset, using 2 bytes in big-endian order
-            #[allow(unused_variables)]
-            let page_size = u16::from_be_bytes([header[16], header[17]]);
+            let page_size = u16::from_be_bytes([file_header[16], file_header[17]]);
 
-            println!("database page size: {}", page_size);
+            println!("database page size: {page_size}");
+
+            // https://www.sqlite.org/fileformat.html#b_tree_pages
+            // The b-tree page header is 8 bytes in size for leaf pages and 12 bytes for interior pages.
+            let mut page_header = [0; 12];
+            file.read_exact(&mut page_header)?;
+
+            assert_eq!(0xd, page_header[0]);
+
+            let num_tables = u16::from_be_bytes([page_header[3], page_header[4]]);
+            println!("number of tables: {num_tables}");
         }
         _ => bail!("Missing or invalid command passed: {}", command),
     }
