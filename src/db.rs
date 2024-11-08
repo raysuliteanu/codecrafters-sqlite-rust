@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::io::{prelude::*, BufReader};
 
-use crate::util;
+use crate::{page::PageInfo, util};
 
 pub fn open_db(reader: &mut BufReader<impl Read>) -> Result<DbInfo, anyhow::Error> {
     let mut file_header = [0; 100];
@@ -24,12 +24,16 @@ pub fn open_db(reader: &mut BufReader<impl Read>) -> Result<DbInfo, anyhow::Erro
     let leaf_payload = u8::from_be_bytes([file_header[23]]);
     assert_eq!(leaf_payload, 32);
 
-    let mut file_header = file_header.as_slice();
+    let mut file_header = dbg!(file_header.as_slice());
 
     let file_change_counter = util::read_be_u32(&mut file_header);
+    let mut file_header = dbg!(file_header);
     let in_header_db_size = util::read_be_u32(&mut file_header);
+    let mut file_header = dbg!(file_header);
     let first_freelist_trunk_page = util::read_be_u32(&mut file_header);
+    let mut file_header = dbg!(file_header);
     let num_freelist_pages = util::read_be_u32(&mut file_header);
+    let mut file_header = dbg!(file_header);
     let schema_cookie = util::read_be_u32(&mut file_header);
     let schema_format = util::read_be_u32(&mut file_header);
     let default_page_cache_size = util::read_be_u32(&mut file_header);
@@ -65,6 +69,25 @@ pub fn open_db(reader: &mut BufReader<impl Read>) -> Result<DbInfo, anyhow::Erro
         version_valid_for,
         version_num,
     })
+}
+
+impl DbInfo {
+    pub fn read_page(
+        &self,
+        reader: &mut BufReader<impl Read>,
+        is_first_page: bool,
+    ) -> Result<PageInfo, anyhow::Error> {
+        let page_size = if is_first_page {
+            self.page_size - 100
+        } else {
+            self.page_size
+        };
+
+        let mut buf = Vec::with_capacity(page_size as usize);
+        reader.take(page_size as u64).read_to_end(&mut buf)?;
+
+        Ok(PageInfo::read(buf.as_slice()))
+    }
 }
 
 // https://www.sqlite.org/fileformat.html#the_database_header
