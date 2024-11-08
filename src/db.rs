@@ -24,16 +24,12 @@ pub fn open_db(reader: &mut BufReader<impl Read>) -> Result<DbInfo, anyhow::Erro
     let leaf_payload = u8::from_be_bytes([file_header[23]]);
     assert_eq!(leaf_payload, 32);
 
-    let mut file_header = dbg!(file_header.as_slice());
+    let mut file_header = &file_header[24..];
 
     let file_change_counter = util::read_be_u32(&mut file_header);
-    let mut file_header = dbg!(file_header);
     let in_header_db_size = util::read_be_u32(&mut file_header);
-    let mut file_header = dbg!(file_header);
     let first_freelist_trunk_page = util::read_be_u32(&mut file_header);
-    let mut file_header = dbg!(file_header);
     let num_freelist_pages = util::read_be_u32(&mut file_header);
-    let mut file_header = dbg!(file_header);
     let schema_cookie = util::read_be_u32(&mut file_header);
     let schema_format = util::read_be_u32(&mut file_header);
     let default_page_cache_size = util::read_be_u32(&mut file_header);
