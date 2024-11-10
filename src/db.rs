@@ -3,9 +3,11 @@ use std::io::{prelude::*, BufReader};
 
 use crate::{page::PageInfo, util};
 
-pub fn open_db(reader: &mut BufReader<impl Read>) -> Result<DbInfo, anyhow::Error> {
-    let mut file_header = [0; 100];
-    reader.read_exact(&mut file_header).context("file_header")?;
+pub fn open_db(
+    reader: &mut BufReader<impl Read>,
+    file_header: &mut [u8; 100],
+) -> Result<DbInfo, anyhow::Error> {
+    reader.read_exact(file_header).context("read file header")?;
 
     // SAFETY: per spec: https://www.sqlite.org/fileformat.html#magic_header_string
     let magic = unsafe { std::str::from_utf8_unchecked(&file_header[0..16]) };
@@ -71,18 +73,17 @@ impl DbInfo {
     pub fn read_page(
         &self,
         reader: &mut BufReader<impl Read>,
-        is_first_page: bool,
+        file_header: Option<[u8; 100]>,
     ) -> Result<PageInfo, anyhow::Error> {
-        let page_size = if is_first_page {
-            self.page_size - 100
+        let (mut buf, page_start) = if let Some(buf) = file_header {
+            (Vec::from(buf), 100)
         } else {
-            self.page_size
+            (Vec::with_capacity(self.page_size as usize), 0)
         };
 
-        let mut buf = Vec::with_capacity(page_size as usize);
-        reader.take(page_size as u64).read_to_end(&mut buf)?;
+        reader.read_to_end(&mut buf)?;
 
-        Ok(PageInfo::read(buf.as_slice()))
+        Ok(PageInfo::read(buf, page_start))
     }
 }
 

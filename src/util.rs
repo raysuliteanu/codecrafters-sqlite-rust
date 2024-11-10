@@ -21,24 +21,18 @@ pub fn read_len<'a>(input: &mut &'a [u8], len: usize) -> &'a [u8] {
 /// byte are used to reconstruct the 64-bit twos-complement integer. Varints are
 /// big-endian: bits taken from the earlier byte of the varint are more
 /// significant than bits taken from the later bytes.
-// TODO: for some reason, min and max u64 don't work
-pub fn varint_unsigned(input: &mut &[u8]) -> Result<u64, anyhow::Error> {
-    assert!(!input.is_empty());
+// TODO: for some reason, max u64 doesn't work
+pub fn varint_unsigned(inp: &[u8]) -> Result<(u64, usize), anyhow::Error> {
+    assert!(!inp.is_empty());
 
+    let mut input = &mut &inp[0..];
     let mut cnt = 0;
     let mut result = 0u64;
     let mut shift = 0u8;
     loop {
-        println!("input: {:#X?}", input);
-
         let s = result << shift;
         let v = input[0] & 0x7f;
         result = s | v as u64;
-
-        println!(
-            "v: {:#X} shift: {shift} bits s: {:#X} s|v: {:#X}",
-            v, s, result
-        );
 
         if input[0] & 0x80 == 0 {
             break;
@@ -59,13 +53,14 @@ pub fn varint_unsigned(input: &mut &[u8]) -> Result<u64, anyhow::Error> {
         shift += 7;
     }
 
-    Ok(result)
+    Ok((result, cnt + 1))
 }
 
-pub fn varint_signed(input: &mut &[u8]) -> Result<i64, anyhow::Error> {
-    let n = varint_unsigned(input)?;
+// TODO: for some reason, min u64 doesn't work
+pub fn varint_signed(input: &[u8]) -> Result<(i64, usize), anyhow::Error> {
+    let (n, cnt) = varint_unsigned(input)?;
 
-    Ok(((n >> 1) as i64) ^ (-((n & 1) as i64)))
+    Ok((((n >> 1) as i64) ^ (-((n & 1) as i64)), cnt))
 }
 
 #[cfg(test)]
@@ -75,42 +70,48 @@ mod tests {
     #[test]
     fn test_varint_positive() {
         let encoded = vec![0x78];
-        let decoded = varint_unsigned(&mut encoded.as_slice()).unwrap();
+        let (decoded, cnt) = varint_unsigned(&mut encoded.as_slice()).unwrap();
         assert_eq!(decoded, 120);
+        assert_eq!(cnt, encoded.len());
 
         let encoded = vec![0x81, 0x16];
-        let decoded = varint_unsigned(&mut encoded.as_slice()).unwrap();
+        let (decoded, cnt) = varint_unsigned(&mut encoded.as_slice()).unwrap();
         assert_eq!(decoded, 150);
+        assert_eq!(cnt, encoded.len());
     }
 
     #[test]
     fn test_varint_negative() {
         let encoded = vec![0x80, 0x01];
-        let decoded = varint_signed(&mut encoded.as_slice()).unwrap();
+        let (decoded, cnt) = varint_signed(&mut encoded.as_slice()).unwrap();
         assert_eq!(decoded, -1);
+        assert_eq!(cnt, encoded.len());
     }
 
     #[test]
     fn test_varint_zero() {
         let encoded = vec![0x00];
-        let decoded = varint_unsigned(&mut encoded.as_slice()).unwrap();
+        let (decoded, cnt) = varint_unsigned(&mut encoded.as_slice()).unwrap();
         assert_eq!(decoded, 0);
+        assert_eq!(cnt, encoded.len());
     }
 
     #[test]
     #[ignore]
     fn test_varint_max_u64() {
         let encoded = vec![0x81, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f];
-        let decoded = varint_unsigned(&mut encoded.as_slice()).unwrap();
+        let (decoded, cnt) = varint_unsigned(&mut encoded.as_slice()).unwrap();
         assert_eq!(decoded, u64::MAX);
+        assert_eq!(cnt, encoded.len());
     }
 
     #[test]
     #[ignore]
     fn test_varint_min_i64() {
         let encoded = vec![0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x00];
-        let decoded = varint_signed(&mut encoded.as_slice()).unwrap();
+        let (decoded, cnt) = varint_signed(&mut encoded.as_slice()).unwrap();
         assert_eq!(decoded, i64::MIN);
+        assert_eq!(cnt, encoded.len());
     }
 
     #[test]
