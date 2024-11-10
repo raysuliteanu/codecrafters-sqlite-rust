@@ -22,7 +22,7 @@ pub struct PageInfo {
 }
 
 impl PageInfo {
-    pub fn read(buf: Vec<u8>, page_start: usize) -> PageInfo {
+    pub fn read(buf: Vec<u8>, page_start: usize) -> Result<PageInfo, anyhow::Error> {
         // https://www.sqlite.org/fileformat.html#b_tree_pages
         // The b-tree page header is 8 bytes in size for leaf pages and 12 bytes for interior pages.
 
@@ -65,9 +65,9 @@ impl PageInfo {
             offset += 4;
         }
 
-        page_info.read_cells(buf, page_start + offset);
+        page_info.read_cells(buf, page_start + offset)?;
 
-        page_info
+        Ok(page_info)
     }
 
     // buf is the full page content, so offset is where the cell ptrs start
@@ -83,26 +83,22 @@ impl PageInfo {
         match self.page_type {
             PageType::LeafTable => {
                 for cell_ptr in cell_ptrs {
-                    println!("buf[{:#X}]={:#X}", cell_ptr, buf[cell_ptr as usize]);
-                    let mut cell_ptr_offset = cell_ptr as usize;
+                    let (cell, mut cell_ptr_offset) = TableLeaf::new(&buf, cell_ptr as usize)?;
 
-                    let cell = TableLeaf::new(&buf, cell_ptr_offset)?;
-
-                    // record_hdr_len is count of bytes including itself; since record_hdr_len is also
-                    // a varint, the number of bytes it took up in buf is the most recent cnt
-                    let limit = cell.header_len + cell_ptr_offset;
                     let mut col_types = Vec::new();
+                    let limit = cell_ptr_offset + cell.header_len;
                     while cell_ptr_offset < limit {
                         let (type_cd, varint_sz) = util::varint_unsigned(&buf[cell_ptr_offset..])?;
                         col_types.push(type_cd);
                         cell_ptr_offset += varint_sz;
                     }
-                    println!("col_types = {:#X?}", col_types);
+
+                    assert_eq!(cell_ptr_offset, limit);
 
                     // see https://www.sqlite.org/fileformat.html#record_format
 
                     let mut record = DbRecord::new();
-                    let mut idx = cell_ptr as usize;
+                    let mut idx = limit;
                     col_types.iter().for_each(|col_type| {
                         let (len, val) = PageInfo::read_column(*col_type, &buf, idx);
                         record.push(val);
@@ -118,7 +114,7 @@ impl PageInfo {
         Ok(())
     }
 
-    fn read_column(col_type: u64, buf: &Vec<u8>, idx: usize) -> (usize, ColumnType) {
+    fn read_column(col_type: u64, buf: &[u8], idx: usize) -> (usize, ColumnType) {
         match col_type {
             0 => (0, ColumnType::Null),
             1 => (1, ColumnType::Int8(i8::from_be_bytes([buf[idx]]))),
@@ -187,7 +183,7 @@ impl PageInfo {
             9 => (0, ColumnType::True),
             10 | 11 => unimplemented!("reserved for future use"),
             n if n / 2 == 0 => {
-                let len = (n - 12 / 2) as usize;
+                let len = ((n - 12) / 2) as usize;
                 let mut blob = &buf[idx..];
                 (
                     len,
@@ -195,14 +191,11 @@ impl PageInfo {
                 )
             }
             n if n / 2 != 0 => {
-                let len = (n - 12 / 2) as usize;
+                let len = ((n - 13) / 2) as usize;
                 let data = &buf[idx..(idx + len)];
-                (
-                    len,
-                    ColumnType::String(
-                        std::str::from_utf8(data).expect("valid string").to_string(),
-                    ),
-                )
+                let s = std::str::from_utf8(data).expect("valid string").to_string();
+
+                (len, ColumnType::String(s))
             }
             _ => {
                 panic!("invalid column type");
@@ -219,6 +212,8 @@ Table B-Tree Leaf Cell (header 0x0d):
         The initial portion of the payload that does not spill to overflow pages.
         A 4-byte big-endian integer page number for the first page of the overflow page list - omitted if all payload fits on the b-tree page.
 */
+#[allow(dead_code)]
+#[derive(Debug)]
 struct TableLeaf {
     header_len: usize,
     payload_len: usize,
@@ -227,21 +222,25 @@ struct TableLeaf {
 }
 
 impl TableLeaf {
-    fn new(buf: &Vec<u8>, idx: usize) -> Result<TableLeaf, anyhow::Error> {
-        let mut cell_ptr_offset = idx;
-        let (payload_len, cnt) = util::varint_unsigned(&buf[cell_ptr_offset..])?;
-        cell_ptr_offset += cnt;
-        let (row_id, cnt) = util::varint_unsigned(&buf[cell_ptr_offset..])?;
-        cell_ptr_offset += cnt;
-        let (record_hdr_len, cnt) = util::varint_unsigned(&buf[cell_ptr_offset..])?;
-        let header_len = record_hdr_len as usize - cnt;
+    fn new(buf: &[u8], idx: usize) -> Result<(TableLeaf, usize), anyhow::Error> {
+        let mut offset = idx;
+        let (payload_len, sz) = util::varint_unsigned(&buf[offset..])?;
+        offset += sz;
+        let (row_id, sz) = util::varint_unsigned(&buf[offset..])?;
+        offset += sz;
+        let (record_hdr_len, sz) = util::varint_unsigned(&buf[offset..])?;
+        offset += sz;
+        let header_len = record_hdr_len as usize - sz;
 
-        Ok(TableLeaf {
-            header_len,
-            payload_len: payload_len as usize,
-            row_id,
-            payload: None,
-        })
+        Ok((
+            TableLeaf {
+                header_len,
+                payload_len: payload_len as usize,
+                row_id,
+                payload: None,
+            },
+            offset,
+        ))
     }
 }
 

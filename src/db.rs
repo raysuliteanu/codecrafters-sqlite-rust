@@ -83,7 +83,7 @@ impl DbInfo {
 
         reader.read_to_end(&mut buf)?;
 
-        Ok(PageInfo::read(buf, page_start))
+        PageInfo::read(buf, page_start)
     }
 }
 

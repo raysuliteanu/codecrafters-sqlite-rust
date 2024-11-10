@@ -25,7 +25,7 @@ pub fn read_len<'a>(input: &mut &'a [u8], len: usize) -> &'a [u8] {
 pub fn varint_unsigned(inp: &[u8]) -> Result<(u64, usize), anyhow::Error> {
     assert!(!inp.is_empty());
 
-    let mut input = &mut &inp[0..];
+    let input = &mut &inp[0..];
     let mut cnt = 0;
     let mut result = 0u64;
     let mut shift = 0u8;

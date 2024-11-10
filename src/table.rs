@@ -1,5 +1,6 @@
 use crate::page::DbRecord;
 
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct TableInfo {
     pub(crate) name: String,
@@ -10,37 +11,54 @@ pub struct TableInfo {
 
 impl TableInfo {
     pub(crate) fn new(record: DbRecord) -> Result<Self, anyhow::Error> {
-        let name = if let Some(c) = record.get(0) {
+        assert!(!record.is_empty());
+
+        #[allow(clippy::get_first)]
+        let typ = if let Some(c) = record.get(0) {
             match c {
                 ColumnType::String(s) => String::from(s),
                 _ => anyhow::bail!("column type mismatch"),
             }
         } else {
-            anyhow::bail!("column type mismatch");
+            unreachable!("asserted that record is not empty");
         };
-        let table_name = if let Some(c) = record.get(1) {
+
+        assert_eq!(typ, "table".to_string());
+
+        let name = if let Some(c) = record.get(1) {
             match c {
                 ColumnType::String(s) => String::from(s),
                 _ => anyhow::bail!("column type mismatch"),
             }
         } else {
-            anyhow::bail!("column type mismatch");
+            anyhow::bail!("missing table desc");
         };
-        let root_page = if let Some(c) = record.get(2) {
+
+        let table_name = if let Some(c) = record.get(2) {
+            match c {
+                ColumnType::String(s) => String::from(s),
+                _ => anyhow::bail!("column type mismatch"),
+            }
+        } else {
+            anyhow::bail!("missing table name");
+        };
+
+        let root_page = if let Some(c) = record.get(3) {
             match c {
                 ColumnType::Int8(s) => *s,
                 _ => anyhow::bail!("column type mismatch"),
             }
         } else {
-            anyhow::bail!("column type mismatch");
+            anyhow::bail!("missing root page");
         };
-        let sql = if let Some(c) = record.get(3) {
+
+        let sql = if let Some(c) = record.get(4) {
             match c {
                 ColumnType::String(s) => String::from(s),
                 _ => anyhow::bail!("column type mismatch"),
             }
         } else {
-            anyhow::bail!("column type mismatch");
+            anyhow::bail!("missing table sql");
         };
 
         Ok(TableInfo {
@@ -49,10 +67,6 @@ impl TableInfo {
             root_page,
             sql,
         })
-    }
-
-    fn expect_column_type(col: ColumnType, expected_col: ColumnType) -> bool {
-        col == expected_col
     }
 }
 
